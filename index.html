@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Player | Secure Video Vault</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0a0a0a">
+</head>
+<body>
+    <div class="app-container">
+        <header>
+            <div class="logo">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="url(#gradient)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <defs>
+                        <linearGradient id="gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" stop-color="#6c5ce7" />
+                            <stop offset="100%" stop-color="#a29bfe" />
+                        </linearGradient>
+                    </defs>
+                    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect>
+                    <line x1="7" y1="2" x2="7" y2="22"></line>
+                    <line x1="17" y1="2" x2="17" y2="22"></line>
+                    <line x1="2" y1="12" x2="22" y2="12"></line>
+                    <line x1="2" y1="7" x2="7" y2="7"></line>
+                    <line x1="2" y1="17" x2="7" y2="17"></line>
+                    <line x1="17" y1="17" x2="22" y2="17"></line>
+                    <line x1="17" y1="7" x2="22" y2="7"></line>
+                </svg>
+                <h1>Vault<span>Play</span></h1>
+            </div>
+            <div class="privacy-badges">
+                <span class="badge" title="Third-party cookies are blocked in embeds">🍪 Cookies Blocked</span>
+                <span class="badge" title="Known tracker parameters are stripped">🛡️ Trackers Blocked</span>
+            </div>
+        </header>
+
+        <main>
+            <section class="add-panel">
+                <div class="input-group">
+                    <input type="url" id="video-url-input" placeholder="Paste video or website link here..." required>
+                    <button id="add-video-btn" class="btn-primary">Add to Vault</button>
+                </div>
+                <p class="error-msg" id="url-error"></p>
+            </section>
+
+            <section class="video-list-container" id="video-list">
+                <!-- Videos will be injected here grouped by date -->
+                <div class="empty-state">
+                    <div class="empty-icon">🎬</div>
+                    <h2>Your vault is empty</h2>
+                    <p>Paste a video link above to start building your private collection.</p>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <!-- Video Player Modal -->
+    <div class="modal-overlay" id="player-modal">
+        <div class="modal-content">
+            <button class="close-modal" id="close-modal-btn">&times;</button>
+            <div class="player-wrapper" id="player-wrapper">
+                <!-- Iframe or video element injected here -->
+            </div>
+            <div class="modal-info">
+                <h3 id="modal-video-title">Video Title</h3>
+                <div class="modal-actions" style="display: flex; gap: 12px; align-items: center;">
+                    <a id="modal-external-link" href="#" target="_blank" rel="noopener noreferrer" style="font-size: 0.85rem; padding: 6px 12px; border-radius: 6px; background: #1e1e1e; color: #f0f0f0; text-decoration: none; border: 1px solid rgba(255, 255, 255, 0.08); transition: background 0.2s;">Open in New Tab</a>
+                    <div class="privacy-notice">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        </svg>
+                        Playing in secure sandboxed mode
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="app.js"></script>
+</body>
+</html>

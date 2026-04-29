@@ -1,0 +1,12 @@
+{
+  "name": "vaultplay",
+  "version": "1.0.0",
+  "description": "Privacy-Focused Video Player App",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2"
+  }
+}
