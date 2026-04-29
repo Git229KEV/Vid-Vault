@@ -304,17 +304,33 @@ input[type="url"]:focus {
     color: var(--text-secondary);
 }
 
-.delete-btn {
+.delete-btn, .refresh-btn {
     background: none;
     border: none;
     color: var(--text-secondary);
     cursor: pointer;
     padding: 4px;
-    transition: color 0.2s;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .delete-btn:hover {
     color: var(--danger);
+}
+
+.refresh-btn:hover {
+    color: var(--accent-2);
+}
+
+.refresh-btn.loading svg {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 .empty-state {

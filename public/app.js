@@ -373,6 +373,49 @@ async function deleteVideo(id, event) {
     }
 }
 
+// Refresh metadata for an existing video
+async function refreshMetadata(id, event) {
+    event.stopPropagation();
+    const btn = event.currentTarget;
+    const originalContent = btn.innerHTML;
+    
+    btn.classList.add('loading');
+    btn.innerHTML = '...';
+    btn.disabled = true;
+
+    try {
+        const video = videos.find(v => v.id === id);
+        if (!video) return;
+
+        const newData = await parseVideoUrl(video.url);
+        
+        // Update Supabase
+        const { data, error } = await supabaseClient
+            .from('videos')
+            .update({
+                title: newData.title,
+                thumbnail: newData.thumbnail
+            })
+            .match({ id: id })
+            .select();
+
+        if (error) throw error;
+
+        // Update local state
+        const index = videos.findIndex(v => v.id === id);
+        if (index !== -1) {
+            videos[index] = data[0];
+            renderVideos();
+        }
+    } catch (err) {
+        console.error("Refresh failed:", err);
+    } finally {
+        btn.classList.remove('loading');
+        btn.innerHTML = originalContent;
+        btn.disabled = false;
+    }
+}
+
 // Group videos by date
 function groupVideosByDate(videosArray) {
     const groups = {};
@@ -437,12 +480,21 @@ function renderVideos() {
                                 <div class="card-title" title="${escapeHtml(v.title)}">${escapeHtml(v.title)}</div>
                                 <div class="card-meta">
                                     <span class="card-date">${new Date(v.addedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                                    <button class="delete-btn" onclick="deleteVideo('${v.id}', event)" title="Delete">
-                                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                                            <polyline points="3 6 5 6 21 6"></polyline>
-                                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                                        </svg>
-                                    </button>
+                                    <div style="display: flex; gap: 8px;">
+                                        <button class="refresh-btn" onclick="refreshMetadata('${v.id}', event)" title="Update Title/Preview">
+                                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <path d="M23 4v6h-6"></path>
+                                                <path d="M1 20v-6h6"></path>
+                                                <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+                                            </svg>
+                                        </button>
+                                        <button class="delete-btn" onclick="deleteVideo('${v.id}', event)" title="Delete">
+                                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="3 6 5 6 21 6"></polyline>
+                                                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                                            </svg>
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
