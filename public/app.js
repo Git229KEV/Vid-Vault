@@ -67,7 +67,6 @@ function setupEventListeners() {
 function cleanUrl(urlStr) {
     try {
         const url = new URL(urlStr);
-        // List of known tracking parameters
         const trackers = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'fbclid', 'gclid', 'si'];
         for (const tracker of trackers) {
             url.searchParams.delete(tracker);
@@ -80,7 +79,6 @@ function cleanUrl(urlStr) {
 
 // Generate a beautiful letter avatar for websites
 function generateAvatarSVG(hostname) {
-    // Remove www. for the letter
     const cleanHost = hostname.replace(/^www\./, '');
     const letter = cleanHost.charAt(0).toUpperCase();
     const colors = [
@@ -111,10 +109,44 @@ function generateAvatarSVG(hostname) {
     return 'data:image/svg+xml,' + encodeURIComponent(svg);
 }
 
-// Fetch Open Graph data via Microlink API
-async function fetchOpenGraphData(url) {
+// Fetch YouTube title + thumbnail via oEmbed (free, no API key needed)
+async function fetchYouTubeOEmbed(videoId) {
     try {
-        const proxyUrl = `https://api.microlink.io?url=${encodeURIComponent(url)}`;
+        const oEmbedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+        const res = await fetch(oEmbedUrl);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return {
+            title: data.title || null,
+            // oEmbed gives maxresdefault-like quality thumbnail
+            image: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+// Fetch Vimeo title + thumbnail via oEmbed (free, no API key needed)
+async function fetchVimeoOEmbed(videoId) {
+    try {
+        const oEmbedUrl = `https://vimeo.com/api/oembed.json?url=https://vimeo.com/${videoId}`;
+        const res = await fetch(oEmbedUrl);
+        if (!res.ok) return null;
+        const data = await res.json();
+        return {
+            title: data.title || null,
+            image: data.thumbnail_url || null
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+// Fetch Open Graph data via Microlink API (for generic websites)
+async function fetchOpenGraphData(url) {
+    // Try Microlink first
+    try {
+        const proxyUrl = `https://api.microlink.io?url=${encodeURIComponent(url)}&screenshot=false&meta=true`;
         const response = await fetch(proxyUrl);
         const json = await response.json();
         
@@ -125,23 +157,42 @@ async function fetchOpenGraphData(url) {
             } else if (json.data.logo && json.data.logo.url) {
                 imgUrl = json.data.logo.url;
             }
-            return {
-                title: json.data.title || null,
-                image: imgUrl
-            };
+            // Only return if we got at least a title
+            if (json.data.title || imgUrl) {
+                return {
+                    title: json.data.title || null,
+                    image: imgUrl
+                };
+            }
         }
-        return null;
     } catch (e) {
-        console.error("Failed to fetch OG data", e);
-        return null;
+        // Microlink failed, try fallback
     }
+
+    // Fallback: try jsonlink.io (another free OG scraper)
+    try {
+        const fallbackUrl = `https://jsonlink.io/api/extract?url=${encodeURIComponent(url)}`;
+        const res = await fetch(fallbackUrl);
+        if (res.ok) {
+            const data = await res.json();
+            if (data.title || data.images?.[0]) {
+                return {
+                    title: data.title || null,
+                    image: data.images?.[0] || null
+                };
+            }
+        }
+    } catch (e) {
+        // Both failed
+    }
+
+    return null;
 }
 
 // Parse Video URL
 async function parseVideoUrl(urlStr) {
     let cleanedUrl = cleanUrl(urlStr);
     
-    // Ensure URL has http/https
     if (!/^https?:\/\//i.test(cleanedUrl)) {
         cleanedUrl = 'https://' + cleanedUrl;
     }
@@ -151,7 +202,6 @@ async function parseVideoUrl(urlStr) {
     let thumbnail = '';
     let embedUrl = cleanedUrl;
 
-    // Updated regex to catch YouTube shorts and live streams
     const ytRegex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts|live)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
     const vimeoRegex = /(?:vimeo\.com\/|player\.vimeo\.com\/video\/)([0-9]+)/i;
     const fileRegex = /\.(mp4|webm|ogg)([?#].*)?$/i;
@@ -159,28 +209,46 @@ async function parseVideoUrl(urlStr) {
     if (ytRegex.test(cleanedUrl)) {
         platform = 'youtube';
         const videoId = cleanedUrl.match(ytRegex)[1];
-        title = `YouTube Video`;
+        title = 'YouTube Video';
         thumbnail = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
         embedUrl = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&rel=0`;
+
+        // Fetch real title via oEmbed
+        const oEmbed = await fetchYouTubeOEmbed(videoId);
+        if (oEmbed) {
+            if (oEmbed.title) title = oEmbed.title;
+            if (oEmbed.image) thumbnail = oEmbed.image;
+        }
+
     } else if (vimeoRegex.test(cleanedUrl)) {
         platform = 'vimeo';
         const videoId = cleanedUrl.match(vimeoRegex)[1];
-        title = `Vimeo Video`;
-        thumbnail = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="#1e1e1e"><rect width="100%" height="100%"/><text x="50%" y="50%" fill="#888" font-size="24" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">VIMEO</text></svg>');
+        title = 'Vimeo Video';
+        thumbnail = generateAvatarSVG('vimeo');
         embedUrl = `https://player.vimeo.com/video/${videoId}?autoplay=1&dnt=1`;
+
+        // Fetch real title + thumbnail via oEmbed
+        const oEmbed = await fetchVimeoOEmbed(videoId);
+        if (oEmbed) {
+            if (oEmbed.title) title = oEmbed.title;
+            if (oEmbed.image) thumbnail = oEmbed.image;
+        }
+
     } else if (fileRegex.test(cleanedUrl)) {
         platform = 'video';
         const parts = new URL(cleanedUrl).pathname.split('/');
-        title = parts[parts.length - 1] || 'Video File';
-        thumbnail = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="100%" height="100%" fill="#1e1e1e"><rect width="100%" height="100%"/><text x="50%" y="50%" fill="#888" font-size="24" font-family="sans-serif" text-anchor="middle" dominant-baseline="middle">VIDEO</text></svg>');
+        title = decodeURIComponent(parts[parts.length - 1]) || 'Video File';
+        thumbnail = generateAvatarSVG('video');
+
     } else {
-        // Generic Website Fallback (e.g. tamilyogi)
+        // Generic Website Fallback
         try {
             const urlObj = new URL(cleanedUrl);
-            title = urlObj.hostname.replace(/^www\./, '');
-            thumbnail = generateAvatarSVG(title);
+            const hostname = urlObj.hostname.replace(/^www\./, '');
+            title = hostname; // Default: domain name
+            thumbnail = generateAvatarSVG(hostname);
             
-            // Try to fetch actual title and image from the website's HTML using a proxy
+            // Try to fetch actual title and preview image
             const ogData = await fetchOpenGraphData(cleanedUrl);
             if (ogData) {
                 if (ogData.title) title = ogData.title;
@@ -211,7 +279,6 @@ async function handleAddVideo() {
 
     try {
         const videoData = await parseVideoUrl(url);
-        // Insert to Supabase
         const { data, error } = await supabaseClient
             .from('videos')
             .insert([videoData])
@@ -219,7 +286,7 @@ async function handleAddVideo() {
             
         if (error) throw error;
         
-        videos.unshift(data[0]); // Add the returned record from DB
+        videos.unshift(data[0]);
         renderVideos();
         urlInput.value = '';
     } catch (err) {
@@ -237,13 +304,11 @@ async function handleAddVideo() {
 
 // Delete Video
 async function deleteVideo(id, event) {
-    event.stopPropagation(); // Prevent opening modal
+    event.stopPropagation();
     
-    // Optimistic UI update
     videos = videos.filter(v => v.id !== id);
     renderVideos();
     
-    // Delete from Supabase
     try {
         const { error } = await supabaseClient
             .from('videos')
@@ -253,8 +318,6 @@ async function deleteVideo(id, event) {
         if (error) throw error;
     } catch (err) {
         console.error("Error deleting video:", err);
-        // Optional: reload if failed
-        // await fetchVideos();
     }
 }
 
@@ -274,7 +337,6 @@ function groupVideosByDate(videosArray) {
         } else if (date.toDateString() === yesterday.toDateString()) {
             dateString = 'Yesterday';
         } else {
-            // e.g. "Oct 15, 2023"
             dateString = date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
         }
         
@@ -310,13 +372,17 @@ function renderVideos() {
                         <div class="video-card" onclick="openPlayer('${v.id}')">
                             <div class="platform-badge">${v.platform.toUpperCase()}</div>
                             <div class="thumbnail">
-                                <img src="${v.thumbnail}" alt="${v.title}" loading="lazy" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'100%\\' height=\\'100%\\' fill=\\'%231e1e1e\\'%3E%3Crect width=\\'100%\\' height=\\'100%\\'/%3E%3C/svg%3E'">
+                                <img 
+                                    src="${v.thumbnail}" 
+                                    alt="${escapeHtml(v.title)}" 
+                                    loading="lazy" 
+                                    onerror="this.onerror=null;this.src='${generateAvatarSVG(v.title || 'x')}'">
                                 <div class="play-overlay">
                                     <div class="play-btn"></div>
                                 </div>
                             </div>
                             <div class="card-info">
-                                <div class="card-title" title="${v.title}">${v.title}</div>
+                                <div class="card-title" title="${escapeHtml(v.title)}">${escapeHtml(v.title)}</div>
                                 <div class="card-meta">
                                     <span class="card-date">${new Date(v.addedAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
                                     <button class="delete-btn" onclick="deleteVideo('${v.id}', event)" title="Delete">
@@ -337,14 +403,25 @@ function renderVideos() {
     videoList.innerHTML = html;
 }
 
+// Escape HTML to prevent XSS in injected titles
+function escapeHtml(str) {
+    if (!str) return '';
+    return str
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
 // Open Player Modal
 function openPlayer(id) {
     const video = videos.find(v => v.id === id);
     if (!video) return;
 
     modalTitle.textContent = video.title;
-    modalExternalLink.href = video.embedUrl;
-    
+    modalExternalLink.href = video.url; // Always link to the original URL, not embed URL
+
     if (video.platform === 'video') {
         let type = "video/mp4";
         if (video.embedUrl.toLowerCase().includes(".webm")) type = "video/webm";
@@ -356,34 +433,96 @@ function openPlayer(id) {
                 Your browser does not support the video tag.
             </video>
         `;
-    } else {
-        // Sandboxed iframe for privacy (in-app browser).
-        // allow-scripts is needed for website functionality
-        // allow-same-origin is included ONLY if it's a known embed platform to allow their players to work properly, otherwise omitted.
-        const sandboxAttrs = (video.platform === 'youtube' || video.platform === 'vimeo') 
-            ? "allow-scripts allow-forms allow-popups allow-presentation allow-same-origin"
-            : "allow-scripts allow-forms allow-popups allow-presentation";
-            
+    } else if (video.platform === 'youtube' || video.platform === 'vimeo') {
+        // Trusted embed platforms — allow-same-origin so their players work
         playerWrapper.innerHTML = `
             <iframe 
                 src="${video.embedUrl}" 
-                sandbox="${sandboxAttrs}" 
+                sandbox="allow-scripts allow-forms allow-popups allow-presentation allow-same-origin" 
                 allow="autoplay; encrypted-media; picture-in-picture" 
                 allowfullscreen>
             </iframe>
         `;
+    } else {
+        // Generic websites — many block iframes. Show a split view:
+        // Try loading iframe, but show a friendly fallback if it's blocked.
+        playerWrapper.innerHTML = `
+            <div class="site-frame-container">
+                <iframe 
+                    id="site-iframe"
+                    src="${video.embedUrl}" 
+                    sandbox="allow-scripts allow-forms allow-popups allow-presentation allow-same-origin"
+                    allow="autoplay; encrypted-media"
+                    onload="handleIframeLoad(this)"
+                    onerror="showFrameBlocked('${video.url}')">
+                </iframe>
+                <div class="frame-blocked-overlay" id="frame-blocked" style="display:none;">
+                    <div class="frame-blocked-content">
+                        <div class="blocked-icon">🔒</div>
+                        <h3>Site blocked embedding</h3>
+                        <p>This website does not allow itself to be opened inside other apps. You can open it directly in your browser.</p>
+                        <a href="${video.url}" target="_blank" rel="noopener noreferrer" class="open-external-btn">
+                            Open Website →
+                        </a>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        // Detect if iframe was blocked after a short wait
+        setTimeout(() => detectIframeBlock(video.url), 2500);
     }
 
     modalOverlay.classList.add('active');
 }
 
+// Try to detect if an iframe failed to load (X-Frame-Options / CSP block)
+function detectIframeBlock(originalUrl) {
+    const iframe = document.getElementById('site-iframe');
+    if (!iframe) return;
+
+    try {
+        // If the iframe is blocked, accessing contentDocument throws or is null
+        const doc = iframe.contentDocument;
+        if (!doc || doc.readyState === 'loading') {
+            // Give it more time — still loading
+            return;
+        }
+        // If body is completely empty, it's likely blocked
+        if (doc.body && doc.body.innerHTML.trim() === '') {
+            showFrameBlocked(originalUrl);
+        }
+    } catch (e) {
+        // Cross-origin access denied means iframe loaded a page but is cross-origin = it probably worked
+        // This is actually the NORMAL case for a successfully loaded cross-origin site
+        // So do nothing here
+    }
+}
+
+function handleIframeLoad(iframe) {
+    // When an iframe is blocked by X-Frame-Options, browsers sometimes still fire onload
+    // but the document is empty. Check for that.
+    try {
+        const doc = iframe.contentDocument;
+        if (doc && doc.body && doc.body.innerHTML.trim() === '') {
+            showFrameBlocked(iframe.src);
+        }
+    } catch (e) {
+        // Cross-origin — this is normal for a working site
+    }
+}
+
+function showFrameBlocked(originalUrl) {
+    const overlay = document.getElementById('frame-blocked');
+    if (overlay) overlay.style.display = 'flex';
+}
+
 // Close Modal
 function closeModal() {
     modalOverlay.classList.remove('active');
-    // Clear iframe/video to stop playback
     setTimeout(() => {
         playerWrapper.innerHTML = '';
-    }, 300); // Wait for transition
+    }, 300);
 }
 
 // Start app
