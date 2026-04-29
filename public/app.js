@@ -25,6 +25,7 @@ const modalExternalLink = document.getElementById('modal-external-link');
 
 // Initialize
 async function init() {
+    console.log("VaultPlay v1.1 Initializing...");
     await fetchVideos();
     setupEventListeners();
 }
