@@ -183,10 +183,56 @@ async function fetchOpenGraphData(url) {
             }
         }
     } catch (e) {
-        // Both failed
+        // Both failed, try one last aggressive fallback using allorigins.win
+        try {
+            const allOriginsUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
+            const res = await fetch(allOriginsUrl);
+            if (res.ok) {
+                const json = await res.json();
+                const html = json.contents;
+                
+                // Manually extract title from HTML
+                const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+                const ogTitleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) || 
+                                     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
+                const ogImageMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
+                                     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
+
+                let title = null;
+                if (ogTitleMatch) title = decodeEntities(ogTitleMatch[1]);
+                else if (titleMatch) title = decodeEntities(titleMatch[1]);
+
+                let image = null;
+                if (ogImageMatch) image = ogImageMatch[1];
+
+                if (title || image) {
+                    return { title, image };
+                }
+            }
+        } catch (err) {
+            // All options exhausted
+        }
     }
 
     return null;
+}
+
+// Helper to decode HTML entities
+function decodeEntities(encodedString) {
+    const translate_re = /&(nbsp|amp|quot|lt|gt);/g;
+    const translate = {
+        "nbsp":" ",
+        "amp" : "&",
+        "quot": "\"",
+        "lt"  : "<",
+        "gt"  : ">"
+    };
+    return encodedString.replace(translate_re, function(match, entity) {
+        return translate[entity];
+    }).replace(/&#(\d+);/gi, function(match, numStr) {
+        const num = parseInt(numStr, 10);
+        return String.fromCharCode(num);
+    });
 }
 
 // Parse Video URL
@@ -253,6 +299,11 @@ async function parseVideoUrl(urlStr) {
             if (ogData) {
                 if (ogData.title) title = ogData.title;
                 if (ogData.image) thumbnail = ogData.image;
+            }
+            
+            // If still no real thumbnail, use WordPress mshots as a fallback
+            if (!thumbnail || thumbnail.startsWith('data:image/svg')) {
+                thumbnail = `https://s.wordpress.com/mshots/v1/${encodeURIComponent(cleanedUrl)}?w=800`;
             }
         } catch (e) {
             throw new Error("Invalid URL format.");
@@ -482,20 +533,22 @@ function detectIframeBlock(originalUrl) {
     if (!iframe) return;
 
     try {
-        // If the iframe is blocked, accessing contentDocument throws or is null
+        // We can't actually read the content if it's cross-origin (it will throw)
+        // But if it's BLOCKED by the browser (X-Frame-Options), sometimes doc is null or accessible but empty.
         const doc = iframe.contentDocument;
-        if (!doc || doc.readyState === 'loading') {
-            // Give it more time — still loading
-            return;
-        }
-        // If body is completely empty, it's likely blocked
-        if (doc.body && doc.body.innerHTML.trim() === '') {
+        
+        // If we CAN access doc and it's empty, it's likely a browser-generated "blocked" page or an error
+        if (doc && doc.body && doc.body.innerHTML.trim() === '') {
             showFrameBlocked(originalUrl);
         }
     } catch (e) {
-        // Cross-origin access denied means iframe loaded a page but is cross-origin = it probably worked
-        // This is actually the NORMAL case for a successfully loaded cross-origin site
-        // So do nothing here
+        // SecurityError: This is actually GOOD news. 
+        // It means the site LOADED a cross-origin document successfully.
+        // If it were blocked by X-Frame-Options, modern browsers often show a restricted page 
+        // that MIGHT also throw this error, making it indistinguishable.
+        
+        // However, we can use the "onload" timing. If it fires very quickly with a SecurityError, 
+        // it might be working. 
     }
 }
 
