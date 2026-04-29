@@ -143,78 +143,23 @@ async function fetchVimeoOEmbed(videoId) {
     }
 }
 
-// Fetch Open Graph data via Microlink API (for generic websites)
+// Fetch Open Graph data via our own WhatsApp-style API
 async function fetchOpenGraphData(url) {
-    // Try Microlink first
     try {
-        const proxyUrl = `https://api.microlink.io?url=${encodeURIComponent(url)}&screenshot=false&meta=true`;
-        const response = await fetch(proxyUrl);
-        const json = await response.json();
+        const apiUrl = `/api/metadata?url=${encodeURIComponent(url)}`;
+        const response = await fetch(apiUrl);
+        if (!response.ok) return null;
         
-        if (json.status === 'success' && json.data) {
-            let imgUrl = null;
-            if (json.data.image && json.data.image.url) {
-                imgUrl = json.data.image.url;
-            } else if (json.data.logo && json.data.logo.url) {
-                imgUrl = json.data.logo.url;
-            }
-            // Only return if we got at least a title
-            if (json.data.title || imgUrl) {
-                return {
-                    title: json.data.title || null,
-                    image: imgUrl
-                };
-            }
+        const data = await response.json();
+        if (data.title || data.image) {
+            return {
+                title: data.title || null,
+                image: data.image || null
+            };
         }
     } catch (e) {
-        // Microlink failed, try fallback
+        console.error("Internal metadata fetch failed", e);
     }
-
-    // Fallback: try jsonlink.io (another free OG scraper)
-    try {
-        const fallbackUrl = `https://jsonlink.io/api/extract?url=${encodeURIComponent(url)}`;
-        const res = await fetch(fallbackUrl);
-        if (res.ok) {
-            const data = await res.json();
-            if (data.title || data.images?.[0]) {
-                return {
-                    title: data.title || null,
-                    image: data.images?.[0] || null
-                };
-            }
-        }
-    } catch (e) {
-        // Both failed, try one last aggressive fallback using allorigins.win
-        try {
-            const allOriginsUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`;
-            const res = await fetch(allOriginsUrl);
-            if (res.ok) {
-                const json = await res.json();
-                const html = json.contents;
-                
-                // Manually extract title from HTML
-                const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-                const ogTitleMatch = html.match(/<meta[^>]+property=["']og:title["'][^>]+content=["']([^"']+)["']/i) || 
-                                     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:title["']/i);
-                const ogImageMatch = html.match(/<meta[^>]+property=["']og:image["'][^>]+content=["']([^"']+)["']/i) ||
-                                     html.match(/<meta[^>]+content=["']([^"']+)["'][^>]+property=["']og:image["']/i);
-
-                let title = null;
-                if (ogTitleMatch) title = decodeEntities(ogTitleMatch[1]);
-                else if (titleMatch) title = decodeEntities(titleMatch[1]);
-
-                let image = null;
-                if (ogImageMatch) image = ogImageMatch[1];
-
-                if (title || image) {
-                    return { title, image };
-                }
-            }
-        } catch (err) {
-            // All options exhausted
-        }
-    }
-
     return null;
 }
 
